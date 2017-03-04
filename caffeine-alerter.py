@@ -11,10 +11,10 @@ ALERT_MESSAGE = 'alert'
 HEARTBEAT_MESSAGE = 'heartbeat'
 RESEND_MESSAGE = '_resend'
 
+radio.config(power=1, address=0x45696277)
 radio.on()
-radio.config(power=1, channel=88, address=0x45696277)
 
-cup = '93399:93399:59950'
+cup = '93399:93399:09900'
 status = {}
 
 
@@ -82,7 +82,11 @@ while True:
         radio.send(HEARTBEAT_MESSAGE + RESEND_MESSAGE)
 
     # Read any incoming messages.
-    incoming = radio.receive()
+    try:
+        incoming = radio.receive()
+    except ValueError:
+        spinner()
+        continue
 
     if incoming:
         if incoming.startswith(RESET_MESSAGE):
