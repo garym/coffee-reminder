@@ -14,8 +14,9 @@ RESEND_MESSAGE = '_resend'
 radio.config(power=1, address=0x45696277)
 radio.on()
 
-cup = '93399:93399:09900'
-status = {}
+status = {
+    'apply_status': True,
+}
 
 
 def cuptop():
@@ -28,19 +29,14 @@ def cuptop():
         row1, row2 = row2, rowchoice[0]
 
 
-cuptopgen = cuptop()
-coffee = [Image(next(cuptopgen) + cup) for i in range(17)]
-
-throb_base = Image('90000:00000:00000:00000:00000')
-throb = [throb_base * (i / 9) for i in range(1, 9)]
-throb += [throb_base * (i / 9) for i in range(8, -1, -1)]
-
-
 def reset():
     display.clear()
-    status['last_reset'] = running_time()
-    status['clear'] = True
-    status['last_heartbeat'] = 0
+    status.update({
+        'showing_error': False,
+        'last_reset': running_time(),
+        'last_heartbeat': 0,
+        'status': HEARTBEAT_MESSAGE,
+    })
 
 
 def spinner():
@@ -50,38 +46,45 @@ def spinner():
 
 
 def alert():
+    cup = '93399:93399:09900'
+    cuptopgen = cuptop()
+    image = [Image(next(cuptopgen) + cup) for i in range(17)]
     display.show(
-        coffee, delay=200, wait=False, loop=True, clear=False)
-    status['clear'] = False
+        image, delay=200, wait=False, loop=True, clear=False)
 
 
 def heartbeat():
     status['last_heartbeat'] = running_time()
+    throb_base = Image('90000:00000:00000:00000:00000')
+    throb = [throb_base * (i / 9) for i in range(1, 9)]
+    throb += [throb_base * (i / 9) for i in range(8, -1, -1)]
+
     display.show(
         throb, delay=100, wait=False, loop=False, clear=False)
 
 
+def send_and_expect_response(msg):
+    spinner()
+    radio.send(msg + RESEND_MESSAGE)
+
+
 reset()
 
+
+def process_local_generated_events():
+    if button_b.was_pressed():
+        send_and_expect_response(RESET_MESSAGE)
+    elif button_a.was_pressed():
+        send_and_expect_response(ALERT_MESSAGE)
+    elif status['status'] != ALERT_MESSAGE:
+        if running_time() > status['last_reset'] + ALERT_DELAY:
+            send_and_expect_response(ALERT_MESSAGE)
+        if running_time() > status['last_heartbeat'] + HEARTBEAT_PERIOD:
+            send_and_expect_response(HEARTBEAT_MESSAGE)
+
+
 while True:
-    # Button A and B held down sends an "alert" message.
-    # Button A and B clicked sends the "reset" message.
-    if status['clear'] and button_a.is_pressed() and button_b.is_pressed():
-        spinner()
-        radio.send(ALERT_MESSAGE + RESEND_MESSAGE)
-    elif button_a.was_pressed() or button_b.was_pressed():
-        spinner()
-        radio.send(RESET_MESSAGE + RESEND_MESSAGE)
-
-    if status['clear'] and running_time() > status['last_reset'] + ALERT_DELAY:
-        spinner()
-        radio.send(ALERT_MESSAGE+RESEND_MESSAGE)
-
-    if status['clear'] and running_time() > status['last_heartbeat'] + HEARTBEAT_PERIOD:
-        spinner()
-        radio.send(HEARTBEAT_MESSAGE + RESEND_MESSAGE)
-
-    # Read any incoming messages.
+    process_local_generated_events()
     try:
         incoming = radio.receive()
     except ValueError:
@@ -89,11 +92,20 @@ while True:
         continue
 
     if incoming:
-        if incoming.startswith(RESET_MESSAGE):
+        resend = incoming.endswith(RESEND_MESSAGE)
+        msg = incoming[:-len(RESEND_MESSAGE)] if resend else incoming
+        if msg in (RESET_MESSAGE, ALERT_MESSAGE, HEARTBEAT_MESSAGE):
+            status['status'] = msg
+            status['apply_status'] = True
+        if resend:
+            radio.send(msg)
+
+    if status['apply_status']:
+        status['apply_status'] = False
+        msg = status['status']
+        if msg == RESET_MESSAGE:
             reset()
-        if incoming.startswith(ALERT_MESSAGE):
+        elif msg == ALERT_MESSAGE:
             alert()
-        if incoming.startswith(HEARTBEAT_MESSAGE):
+        elif msg == HEARTBEAT_MESSAGE:
             heartbeat()
-        if incoming.endswith(RESEND_MESSAGE):
-            radio.send(incoming[:-len(RESEND_MESSAGE)])
